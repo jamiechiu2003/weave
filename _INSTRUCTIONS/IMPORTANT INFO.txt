@@ -1,0 +1,18 @@
+# Terminal run app
+npm run dev
+
+# Supabase project 
+username: jamiechiu's Project
+p/w: Q+5v+5qw!!!
+
+# Project URL
+https://zkzdhvoqtrsvvdbxpuuh.supabase.co
+
+# anon public
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpremRodm9xdHJzdnZkYnhwdXVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk0NDc3ODUsImV4cCI6MjA4NTAyMzc4NX0.rN3pXEE356C0ScVrJ3Aqd6iz_1aiLiRgOnHQODNvwkk
+
+# dummy emails
+Customer: customer1@link.cuhk.edu.hk
+Delivery: delivery1@link.cuhk.edu.hk
+Admin: admin1@link.cuhk.edu.hk
+Test: test123@link.cuhk.edu.hk
