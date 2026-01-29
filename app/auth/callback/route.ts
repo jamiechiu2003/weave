@@ -1,4 +1,3 @@
-// app/auth/callback/route.ts
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
@@ -31,6 +30,5 @@ export async function GET(request: Request) {
     await supabase.auth.exchangeCodeForSession(code)
   }
 
-  // URL to redirect to after sign in process completes
   return NextResponse.redirect(new URL('/menu', requestUrl.origin))
 }
