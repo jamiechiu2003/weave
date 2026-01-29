@@ -16,3 +16,7 @@ Customer: customer1@link.cuhk.edu.hk
 Delivery: delivery1@link.cuhk.edu.hk
 Admin: admin1@link.cuhk.edu.hk
 Test: test123@link.cuhk.edu.hk
+
+# git repository
+https://github.com/jamiechiu2003/weave.git
+

@@ -12,19 +12,18 @@ export default function ProfilePage() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
-  const [orders, setOrders] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
-  
-  const [fullName, setFullName] = useState('')
-  const [phone, setPhone] = useState('')
-  const [college, setCollege] = useState('')
+  const [formData, setFormData] = useState({
+    full_name: '',
+    phone: '',
+  })
 
   useEffect(() => {
-    loadProfile()
-    loadOrders()
+    initializeProfile()
   }, [])
 
-  const loadProfile = async () => {
+  const initializeProfile = async () => {
     const currentUser = await getCurrentUser()
     if (!currentUser) {
       router.push('/auth/login')
@@ -32,164 +31,215 @@ export default function ProfilePage() {
     }
 
     setUser(currentUser)
-    const userProfile = await getUserProfile(currentUser.id)
-    setProfile(userProfile)
-    setFullName(userProfile.full_name)
-    setPhone(userProfile.phone || '')
-    setCollege(userProfile.college || '')
-  }
 
-  const loadOrders = async () => {
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return
-
-    const { data } = await supabase
-      .from('orders')
-      .select(`
-        *,
-        campus_zones(name)
-      `)
-      .eq('customer_id', currentUser.id)
-      .order('created_at', { ascending: false })
-      .limit(10)
-
-    if (data) setOrders(data)
-  }
-
-  const handleUpdateProfile = async () => {
-    const { error } = await supabase
-      .from('users')
-      .update({
-        full_name: fullName,
-        phone,
-        college
+    try {
+      const userProfile = await getUserProfile(currentUser.id)
+      setProfile(userProfile)
+      setFormData({
+        full_name: userProfile.full_name || '',
+        phone: userProfile.phone || '',
       })
-      .eq('id', user.id)
-
-    if (!error) {
-      alert('Profile updated!')
-      setEditing(false)
-      loadProfile()
-    } else {
-      alert('Error updating profile: ' + error.message)
+    } catch (error) {
+      console.error('Error loading profile:', error)
+    } finally {
+      setLoading(false)
     }
   }
 
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut()
+      router.push('/auth/login')
+    } catch (error) {
+      console.error('Error signing out:', error)
+    }
+  }
+
+  const handleUpdateProfile = async () => {
+    if (!user) return
+
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({
+          full_name: formData.full_name,
+          phone: formData.phone,
+        })
+        .eq('id', user.id)
+
+      if (error) {
+        console.error('Error updating profile:', error)
+        alert('Failed to update profile: ' + error.message)
+        return
+      }
+
+      alert('Profile updated successfully! ✅')
+      setEditing(false)
+      initializeProfile()
+    } catch (error: any) {
+      console.error('Error in handleUpdateProfile:', error)
+      alert('Error: ' + error.message)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="text-center">Loading profile...</div>
+      </div>
+    )
+  }
+
   if (!profile) {
-    return <div className="container mx-auto px-4 py-8">Loading...</div>
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <Card className="p-8 text-center">
+          <p className="text-xl mb-4">Error loading profile</p>
+          <Button onClick={initializeProfile}>Retry</Button>
+        </Card>
+      </div>
+    )
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
-      <h1 className="text-3xl font-bold mb-8">My Profile</h1>
-
-      <Card className="p-6 mb-8">
+    <div className="container mx-auto px-4 py-8">
+      <div className="max-w-2xl mx-auto">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-semibold">Personal Information</h2>
-          <Button
-            variant="outline"
-            onClick={() => setEditing(!editing)}
-          >
-            {editing ? 'Cancel' : 'Edit'}
+          <h1 className="text-3xl font-bold">Profile</h1>
+          <Button variant="outline" onClick={handleSignOut}>
+            Sign Out
           </Button>
         </div>
 
-        {editing ? (
-          <div className="space-y-4">
-            <div>
-              <Label>Full Name</Label>
-              <Input
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-              />
-            </div>
-            <div>
-              <Label>Phone</Label>
-              <Input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
-            </div>
-            <div>
-              <Label>College</Label>
-              <Input
-                value={college}
-                onChange={(e) => setCollege(e.target.value)}
-              />
-            </div>
-            <Button onClick={handleUpdateProfile}>
-              Save Changes
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div>
-              <p className="text-sm text-gray-600">Name</p>
-              <p className="font-semibold">{profile.full_name}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-600">Email</p>
-              <p className="font-semibold">{profile.email}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-600">Student ID</p>
-              <p className="font-semibold">{profile.student_id}</p>
-            </div>
-            {profile.phone && (
-              <div>
-                <p className="text-sm text-gray-600">Phone</p>
-                <p className="font-semibold">{profile.phone}</p>
+        <Card className="p-6">
+          <div className="space-y-6">
+            {/* Profile Picture */}
+            <div className="flex items-center gap-4">
+              <div className="w-20 h-20 rounded-full bg-blue-500 flex items-center justify-center text-white text-3xl font-bold">
+                {profile.full_name?.charAt(0).toUpperCase() || 'U'}
               </div>
-            )}
-            {profile.college && (
               <div>
-                <p className="text-sm text-gray-600">College</p>
-                <p className="font-semibold">{profile.college}</p>
+                <h2 className="text-2xl font-bold">{profile.full_name || 'User'}</h2>
+                <p className="text-gray-600">{user.email}</p>
               </div>
-            )}
-            <div>
-              <p className="text-sm text-gray-600">Role</p>
-              <p className="font-semibold capitalize">{profile.role}</p>
             </div>
-          </div>
-        )}
-      </Card>
 
-      <Card className="p-6">
-        <h2 className="text-2xl font-semibold mb-6">Recent Orders</h2>
-        
-        {orders.length === 0 ? (
-          <p className="text-center text-gray-500 py-8">No orders yet</p>
-        ) : (
-          <div className="space-y-4">
-            {orders.map(order => (
-              <div
-                key={order.id}
-                className="border rounded p-4 hover:bg-gray-50 cursor-pointer"
-                onClick={() => router.push(`/order/${order.id}`)}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-semibold">
-                    Order #{order.id.slice(0, 8)}
-                  </span>
-                  <span className={`px-2 py-1 rounded text-sm ${
-                    order.status === 'delivered' ? 'bg-green-100 text-green-800' :
-                    order.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                    'bg-blue-100 text-blue-800'
-                  }`}>
-                    {order.status}
-                  </span>
+            {/* Profile Information */}
+            <div className="border-t pt-6">
+              {editing ? (
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="full_name">Full Name</Label>
+                    <Input
+                      id="full_name"
+                      value={formData.full_name}
+                      onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+                      placeholder="Enter your full name"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="phone">Phone Number</Label>
+                    <Input
+                      id="phone"
+                      value={formData.phone}
+                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      placeholder="Enter your phone number"
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Email</Label>
+                    <Input value={user.email} disabled className="bg-gray-100" />
+                    <p className="text-sm text-gray-500 mt-1">Email cannot be changed</p>
+                  </div>
+
+                  <div>
+                    <Label>Role</Label>
+                    <Input value={profile.role || 'customer'} disabled className="bg-gray-100" />
+                  </div>
+
+                  <div className="flex gap-2 pt-4">
+                    <Button onClick={handleUpdateProfile} className="flex-1">
+                      Save Changes
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setEditing(false)
+                        setFormData({
+                          full_name: profile.full_name || '',
+                          phone: profile.phone || '',
+                        })
+                      }}
+                      className="flex-1"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
-                <div className="text-sm text-gray-600">
-                  <p>📍 {order.campus_zones.name}</p>
-                  <p>💰 ${order.total_amount}</p>
-                  <p>📅 {new Date(order.created_at).toLocaleDateString()}</p>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <Label className="text-gray-600">Full Name</Label>
+                    <p className="text-lg font-medium">{profile.full_name || 'Not set'}</p>
+                  </div>
+
+                  <div>
+                    <Label className="text-gray-600">Phone Number</Label>
+                    <p className="text-lg font-medium">{profile.phone || 'Not set'}</p>
+                  </div>
+
+                  <div>
+                    <Label className="text-gray-600">Email</Label>
+                    <p className="text-lg font-medium">{user.email}</p>
+                  </div>
+
+                  <div>
+                    <Label className="text-gray-600">Role</Label>
+                    <p className="text-lg font-medium capitalize">{profile.role || 'customer'}</p>
+                  </div>
+
+                  {profile.role === 'delivery' && (
+                    <>
+                      <div>
+                        <Label className="text-gray-600">Total Deliveries</Label>
+                        <p className="text-lg font-medium">{profile.total_deliveries || 0}</p>
+                      </div>
+
+                      <div>
+                        <Label className="text-gray-600">Rating</Label>
+                        <p className="text-lg font-medium">⭐ {Number(profile.rating || 5).toFixed(1)}</p>
+                      </div>
+                    </>
+                  )}
+
+                  <Button onClick={() => setEditing(true)} className="w-full mt-4">
+                    Edit Profile
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Account Stats */}
+            <div className="border-t pt-6">
+              <h3 className="font-semibold mb-3">Account Stats</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <p className="text-sm text-gray-600">Member Since</p>
+                  <p className="text-lg font-semibold">
+                    {new Date(profile.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <p className="text-sm text-gray-600">Account Status</p>
+                  <p className="text-lg font-semibold text-green-600">Active</p>
                 </div>
               </div>
-            ))}
+            </div>
           </div>
-        )}
-      </Card>
+        </Card>
+      </div>
     </div>
   )
 }

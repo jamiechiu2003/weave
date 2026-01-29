@@ -1,10 +1,20 @@
 'use client'
 
 import { useEffect, useState, use } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { supabase } from '@/lib/supabase'
 import dynamic from 'next/dynamic'
 
-const Map = dynamic(() => import('@/components/DeliveryMap'), { ssr: false })
+const DeliveryMap = dynamic(() => import('@/components/DeliveryMap'), { ssr: false })
+
+interface OrderItem {
+  id: string
+  quantity: number
+  unit_price: number
+  products: {
+    name: string
+    price: number
+  }
+}
 
 interface Order {
   id: string
@@ -12,28 +22,47 @@ interface Order {
   customer_phone: string
   pickup_location: string
   delivery_location: string
+  dropoff_zone: string
   items: string
   total_price: number
+  total_amount: number
   status: string
   created_at: string
   delivery_partner_lat?: number
   delivery_partner_lng?: number
+  order_items: OrderItem[]
 }
 
 export default function OrderTrackingPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params)
   const [order, setOrder] = useState<Order | null>(null)
-  const supabase = createClientComponentClient()
 
   const fetchOrder = async () => {
     const { data, error } = await supabase
       .from('orders')
-      .select('*')
+      .select(`
+        *,
+        order_items (
+          id,
+          quantity,
+          unit_price,
+          products (
+            name,
+            price
+          )
+        )
+      `)
       .eq('id', resolvedParams.id)
       .single()
 
-    if (!error && data) {
-      setOrder(data)
+    if (error) {
+      console.error('❌ Error fetching order:', error)
+      return
+    }
+
+    if (data) {
+      console.log('📦 Full order data with items:', data)
+      setOrder(data as Order)
     }
   }
 
@@ -102,6 +131,23 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
 
   const statusInfo = getStatusInfo()
 
+  // Get the delivery location (try both fields)
+  const deliveryLocation = order.delivery_location || order.dropoff_zone || 'Not specified'
+  
+  // Get the total price (try both fields)
+  const totalPrice = order.total_amount || order.total_price || 0
+
+  // Format order items for display
+  const formatOrderItems = () => {
+    if (!order.order_items || order.order_items.length === 0) {
+      return 'No items listed'
+    }
+    
+    return order.order_items
+      .map(item => `${item.quantity}x ${item.products.name}`)
+      .join(', ')
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-4xl mx-auto">
@@ -125,47 +171,37 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
           </p>
         </div>
 
-        {/* Order Details */}
-        <div className="bg-white p-6 rounded-lg shadow-md mb-6">
-          <h2 className="text-xl font-bold mb-4">Order Details</h2>
-          <div className="space-y-2">
-            <p><span className="font-semibold">Order ID:</span> {order.id.slice(0, 8)}</p>
-            <p><span className="font-semibold">Customer:</span> {order.customer_name}</p>
-            <p><span className="font-semibold">Phone:</span> {order.customer_phone}</p>
-            <p><span className="font-semibold">Pickup:</span> {order.pickup_location}</p>
-            <p><span className="font-semibold">Delivery:</span> {order.delivery_location}</p>
-            <p><span className="font-semibold">Items:</span> {order.items}</p>
-            <p className="text-xl"><span className="font-semibold">Total:</span> HK${order.total_price}</p>
-          </div>
-        </div>
-
-        {/* Map */}
-        {(order.status === 'accepted' || order.status === 'picked_up') && order.delivery_partner_lat && order.delivery_partner_lng && (
-          <div className="bg-white p-6 rounded-lg shadow-md">
+        {/* Map - Show when order is accepted or picked up */}
+        {(order.status === 'accepted' || order.status === 'picked_up') && (
+          <div className="bg-white p-6 rounded-lg shadow-md mb-6">
             <h2 className="text-xl font-bold mb-4">Live Tracking</h2>
             <div className="h-96 rounded-lg overflow-hidden">
-              <Map
-                deliveryPartnerLocation={{
-                  lat: order.delivery_partner_lat,
-                  lng: order.delivery_partner_lng
-                }}
-                pickupLocation={order.pickup_location}
-                deliveryLocation={order.delivery_location}
+              <DeliveryMap
+                deliveryPartnerLocation={
+                  order.delivery_partner_lat && order.delivery_partner_lng
+                    ? {
+                        lat: order.delivery_partner_lat,
+                        lng: order.delivery_partner_lng
+                      }
+                    : null
+                }
+                pickupLocation={order.pickup_location || 'CUHK Café'}
+                deliveryLocation={deliveryLocation}
               />
             </div>
             <p className="text-sm text-gray-500 mt-2 text-center">
-              📍 Last updated: {order.delivery_partner_lat && order.delivery_partner_lng ? 'Just now' : 'Waiting for update...'}
+              📍 Last updated: {order.delivery_partner_lat && order.delivery_partner_lng ? 'Just now' : 'Waiting for first update...'}
             </p>
           </div>
         )}
 
         {/* Timeline */}
-        <div className="bg-white p-6 rounded-lg shadow-md mt-6">
+        <div className="bg-white p-6 rounded-lg shadow-md mb-6">
           <h2 className="text-xl font-bold mb-4">Order Timeline</h2>
           <div className="space-y-4">
             <div className="flex items-start">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-4 ${
-                order.status !== 'pending' ? 'bg-green-500' : 'bg-gray-300'
+                order.status !== 'pending' ? 'bg-green-500 text-white' : 'bg-gray-300'
               }`}>
                 {order.status !== 'pending' ? '✓' : '1'}
               </div>
@@ -177,7 +213,7 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
             
             <div className="flex items-start">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-4 ${
-                order.status === 'accepted' || order.status === 'picked_up' || order.status === 'delivered' ? 'bg-green-500' : 'bg-gray-300'
+                order.status === 'accepted' || order.status === 'picked_up' || order.status === 'delivered' ? 'bg-green-500 text-white' : 'bg-gray-300'
               }`}>
                 {order.status === 'accepted' || order.status === 'picked_up' || order.status === 'delivered' ? '✓' : '2'}
               </div>
@@ -191,7 +227,7 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
             
             <div className="flex items-start">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-4 ${
-                order.status === 'picked_up' || order.status === 'delivered' ? 'bg-green-500' : 'bg-gray-300'
+                order.status === 'picked_up' || order.status === 'delivered' ? 'bg-green-500 text-white' : 'bg-gray-300'
               }`}>
                 {order.status === 'picked_up' || order.status === 'delivered' ? '✓' : '3'}
               </div>
@@ -205,7 +241,7 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
             
             <div className="flex items-start">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-4 ${
-                order.status === 'delivered' ? 'bg-green-500' : 'bg-gray-300'
+                order.status === 'delivered' ? 'bg-green-500 text-white' : 'bg-gray-300'
               }`}>
                 {order.status === 'delivered' ? '✓' : '4'}
               </div>
@@ -214,6 +250,53 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
                 <p className="text-sm text-gray-600">
                   {order.status === 'delivered' ? 'Order completed!' : 'Not yet delivered'}
                 </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Order Details - Now with actual items */}
+        <div className="bg-white p-6 rounded-lg shadow-md">
+          <h2 className="text-xl font-bold mb-4">Order Details</h2>
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm text-gray-600">Order ID</p>
+              <p className="font-medium">{order.id.slice(0, 8)}</p>
+            </div>
+            
+            <div>
+              <p className="text-sm text-gray-600">Pickup Location</p>
+              <p className="font-medium">{order.pickup_location || 'Not specified'}</p>
+            </div>
+            
+            <div>
+              <p className="text-sm text-gray-600">Delivery Location</p>
+              <p className="font-medium">{deliveryLocation}</p>
+            </div>
+            
+            <div className="border-t pt-3">
+              <p className="text-sm text-gray-600 mb-2">Items Ordered</p>
+              {order.order_items && order.order_items.length > 0 ? (
+                <div className="space-y-2">
+                  {order.order_items.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between bg-gray-50 p-3 rounded">
+                      <div className="flex items-center gap-3">
+                        <span className="font-semibold text-blue-600">{item.quantity}x</span>
+                        <span className="font-medium">{item.products.name}</span>
+                      </div>
+                      <span className="text-gray-600">HK${(item.quantity * item.unit_price).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500 italic">No items listed</p>
+              )}
+            </div>
+            
+            <div className="border-t pt-3">
+              <div className="flex justify-between text-lg">
+                <span className="font-semibold">Total Amount</span>
+                <span className="font-bold text-blue-600">HK${totalPrice.toFixed(2)}</span>
               </div>
             </div>
           </div>

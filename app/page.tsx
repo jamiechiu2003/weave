@@ -3,6 +3,8 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Coffee, Bike, Clock, MapPin } from 'lucide-react'
 
+import Map from '@/components/DeliveryMap'
+
 export default function Home() {
   return (
     <div className="container mx-auto px-4 py-12">

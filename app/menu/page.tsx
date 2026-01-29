@@ -113,11 +113,12 @@ export default function MenuPage() {
       const deliveryFee = getDeliveryFee()
       const total = subtotal + deliveryFee
 
-      // Create order with explicit values
+      // Create order - ONLY use fields that exist in your database
       const orderInsert = {
         customer_id: user.id,
+        pickup_location: 'STUDENT_CAFE',
         dropoff_zone: selectedZone,
-        dropoff_details: dropoffDetails.trim() === '' ? null : dropoffDetails.trim(),
+        dropoff_details: dropoffDetails.trim() || null,
         subtotal: Number(subtotal),
         delivery_fee: Number(deliveryFee),
         total_amount: Number(total),
@@ -139,7 +140,7 @@ export default function MenuPage() {
         throw orderError
       }
 
-      console.log('Order created:', orderData)
+      console.log('✅ Order created:', orderData)
 
       // Create order items
       const orderItems = cart.map(item => ({
@@ -161,6 +162,8 @@ export default function MenuPage() {
         throw itemsError
       }
 
+      console.log('✅ Order items created')
+
       // Clear cart and redirect
       setCart([])
       setSelectedZone('')
@@ -169,7 +172,7 @@ export default function MenuPage() {
       router.push(`/order/${orderData.id}`)
     } catch (error: any) {
       console.error('Full error:', error)
-      alert('Error placing order: ' + (error.message || 'Unknown error'))
+      alert('Error placing order: ' + (error.message || error.hint || 'Unknown error'))
     } finally {
       setLoading(false)
     }

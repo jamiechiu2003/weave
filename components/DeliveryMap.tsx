@@ -1,12 +1,10 @@
-// components/DeliveryMap.tsx
 'use client'
 
-import { useEffect, useState } from 'react'
-import { MapContainer, TileLayer, Marker, Popup, Polyline, Circle } from 'react-leaflet'
+import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
-// Fix Leaflet default icon issue in Next.js
+// Fix for default marker icon
 delete (L.Icon.Default.prototype as any)._getIconUrl
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
@@ -14,293 +12,301 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 })
 
-// Custom icons
-const cafeIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
-})
-
-const deliveryIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
-})
-
-const customerIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
-})
-
 interface DeliveryMapProps {
-  pickupLat: number
-  pickupLng: number
-  dropoffLat: number
-  dropoffLng: number
-  deliveryPartnerLat?: number
-  deliveryPartnerLng?: number
-  estimatedTime: number
-  orderStatus: string
+  deliveryPartnerLocation?: {
+    lat: number
+    lng: number
+  } | null
+  pickupLocation: string
+  deliveryLocation: string
 }
 
-export default function DeliveryMap({
-  pickupLat,
-  pickupLng,
-  dropoffLat,
-  dropoffLng,
-  deliveryPartnerLat,
-  deliveryPartnerLng,
-  estimatedTime,
-  orderStatus
-}: DeliveryMapProps) {
-  const [mounted, setMounted] = useState(false)
-  const [walkingRoute, setWalkingRoute] = useState<[number, number][]>([])
-  const [routeDistance, setRouteDistance] = useState<number>(0)
-  const [routeDuration, setRouteDuration] = useState<number>(0)
+// Location coordinates for CUHK locations
+const LOCATIONS: { [key: string]: { lat: number; lng: number } } = {
+  'CUHK Café': { lat: 22.418461, lng: 114.204712 },
+  'New Asia College': { lat: 22.421197, lng: 114.209186 },
+  'Shaw College': { lat: 22.419234, lng: 114.207789 },
+  'United College': { lat: 22.418976, lng: 114.206543 },
+  'Chung Chi College': { lat: 22.414567, lng: 114.208901 },
+  'Medical Building': { lat: 22.41952, lng: 114.20545 },
+}
 
-  useEffect(() => {
-    setMounted(true)
-  }, [])
+export default function DeliveryMap({ deliveryPartnerLocation, pickupLocation, deliveryLocation }: DeliveryMapProps) {
+  const mapRef = useRef<L.Map | null>(null)
+  const mapContainerRef = useRef<HTMLDivElement>(null)
+  const deliveryPartnerMarkerRef = useRef<L.Marker | null>(null)
+  const pickupMarkerRef = useRef<L.Marker | null>(null)
+  const deliveryMarkerRef = useRef<L.Marker | null>(null)
+  const routeLayerRef = useRef<L.Polyline | null>(null)
+  const decoratorLayerRef = useRef<any>(null)
+  const [routeDistance, setRouteDistance] = useState<number | null>(null)
+  const [routeDuration, setRouteDuration] = useState<number | null>(null)
 
-  useEffect(() => {
-    if (mounted) {
-      calculateRoute()
+  // Fetch walking route from OSRM
+  const fetchWalkingRoute = async (start: { lat: number; lng: number }, end: { lat: number; lng: number }) => {
+    try {
+      // Using OSRM (Open Source Routing Machine) for walking directions
+      const url = `https://router.project-osrm.org/route/v1/foot/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`
+      
+      const response = await fetch(url)
+      const data = await response.json()
+
+      if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+        const route = data.routes[0]
+        const coordinates = route.geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]]) // Convert [lng, lat] to [lat, lng]
+        
+        // Get distance and duration
+        const distanceInMeters = route.distance
+        const durationInSeconds = route.duration
+        
+        setRouteDistance(distanceInMeters)
+        setRouteDuration(durationInSeconds)
+        
+        return coordinates
+      }
+    } catch (error) {
+      console.error('Error fetching route:', error)
     }
-  }, [mounted, pickupLat, pickupLng, dropoffLat, dropoffLng, deliveryPartnerLat, deliveryPartnerLng])
-
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const R = 6371 // Earth's radius in km
-    const dLat = (lat2 - lat1) * Math.PI / 180
-    const dLon = (lon2 - lon1) * Math.PI / 180
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-      Math.sin(dLon/2) * Math.sin(dLon/2)
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
-    return R * c
+    
+    // Fallback to straight line if routing fails
+    return [[start.lat, start.lng], [end.lat, end.lng]]
   }
 
-  const calculateRoute = () => {
-    // Determine start and end points
-    let startLat, startLng, endLat, endLng
-
-    if (deliveryPartnerLat && deliveryPartnerLng && orderStatus !== 'pending') {
-      startLat = deliveryPartnerLat
-      startLng = deliveryPartnerLng
-      endLat = dropoffLat
-      endLng = dropoffLng
-    } else {
-      startLat = pickupLat
-      startLng = pickupLng
-      endLat = dropoffLat
-      endLng = dropoffLng
+  useEffect(() => {
+    if (!mapContainerRef.current) return
+    
+    // Don't initialize map if delivery partner location is not available
+    if (!deliveryPartnerLocation?.lat || !deliveryPartnerLocation?.lng) {
+      console.log('Waiting for delivery partner location...')
+      return
     }
 
-    // Campus waypoints for more realistic routing (CUHK main paths)
-    const mainWaypoints = [
-      { lat: 22.41849, lng: 114.20648, name: 'John Fulton Centre' },
-      { lat: 22.4183, lng: 114.2082, name: 'Library Junction' },
-      { lat: 22.4192, lng: 114.2074, name: 'University Mall' },
-      { lat: 22.4178, lng: 114.2065, name: 'Central Avenue' },
-      { lat: 22.4165, lng: 114.2055, name: 'Sports Complex' },
-    ]
+    // Get coordinates for pickup and delivery locations
+    const pickupCoords = LOCATIONS[pickupLocation] || LOCATIONS['CUHK Café']
+    const deliveryCoords = LOCATIONS[deliveryLocation] || LOCATIONS['New Asia College']
 
-    // Find closest waypoint to end destination
-    let closestWaypoint = mainWaypoints[0]
-    let minDist = calculateDistance(endLat, endLng, closestWaypoint.lat, closestWaypoint.lng)
+    // Initialize map centered on delivery location
+    if (!mapRef.current) {
+      mapRef.current = L.map(mapContainerRef.current).setView(
+        [deliveryCoords.lat, deliveryCoords.lng],
+        15
+      )
 
-    mainWaypoints.forEach(wp => {
-      const dist = calculateDistance(endLat, endLng, wp.lat, wp.lng)
-      if (dist < minDist) {
-        minDist = dist
-        closestWaypoint = wp
-      }
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors',
+        maxZoom: 19,
+      }).addTo(mapRef.current)
+    }
+
+    // Create custom icons
+    const deliveryPartnerIcon = L.divIcon({
+      html: '<div style="background-color: #3B82F6; width: 30px; height: 30px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; font-size: 16px;">🚶</div>',
+      className: 'custom-div-icon',
+      iconSize: [30, 30],
+      iconAnchor: [15, 15],
     })
 
-    // Build route: start -> waypoint -> end
-    const route: [number, number][] = []
-    
-    // Add intermediate points for smoother path
-    const steps = 5
-    
-    // From start to waypoint
-    for (let i = 0; i <= steps; i++) {
-      const ratio = i / steps
-      const lat = startLat + (closestWaypoint.lat - startLat) * ratio
-      const lng = startLng + (closestWaypoint.lng - startLng) * ratio
-      route.push([lat, lng])
+    const pickupIcon = L.divIcon({
+      html: '<div style="background-color: #F59E0B; width: 35px; height: 35px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; font-size: 18px;">☕</div>',
+      className: 'custom-div-icon',
+      iconSize: [35, 35],
+      iconAnchor: [17.5, 17.5],
+    })
+
+    const deliveryIcon = L.divIcon({
+      html: '<div style="background-color: #10B981; width: 35px; height: 35px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; font-size: 18px;">🏠</div>',
+      className: 'custom-div-icon',
+      iconSize: [35, 35],
+      iconAnchor: [17.5, 17.5],
+    })
+
+    // Update or create delivery partner marker
+    if (deliveryPartnerMarkerRef.current) {
+      deliveryPartnerMarkerRef.current.setLatLng([deliveryPartnerLocation.lat, deliveryPartnerLocation.lng])
+    } else {
+      deliveryPartnerMarkerRef.current = L.marker(
+        [deliveryPartnerLocation.lat, deliveryPartnerLocation.lng],
+        { icon: deliveryPartnerIcon }
+      )
+        .addTo(mapRef.current)
+        .bindPopup('Delivery Partner 🚶')
     }
 
-    // From waypoint to end
-    for (let i = 1; i <= steps; i++) {
-      const ratio = i / steps
-      const lat = closestWaypoint.lat + (endLat - closestWaypoint.lat) * ratio
-      const lng = closestWaypoint.lng + (endLng - closestWaypoint.lng) * ratio
-      route.push([lat, lng])
+    // Update or create pickup marker
+    if (pickupMarkerRef.current) {
+      pickupMarkerRef.current.setLatLng([pickupCoords.lat, pickupCoords.lng])
+    } else {
+      pickupMarkerRef.current = L.marker([pickupCoords.lat, pickupCoords.lng], { icon: pickupIcon })
+        .addTo(mapRef.current)
+        .bindPopup(`Pickup: ${pickupLocation}`)
     }
 
-    setWalkingRoute(route)
+    // Update or create delivery marker
+    if (deliveryMarkerRef.current) {
+      deliveryMarkerRef.current.setLatLng([deliveryCoords.lat, deliveryCoords.lng])
+    } else {
+      deliveryMarkerRef.current = L.marker([deliveryCoords.lat, deliveryCoords.lng], { icon: deliveryIcon })
+        .addTo(mapRef.current)
+        .bindPopup(`Delivery: ${deliveryLocation}`)
+    }
 
-    // Calculate total distance with waypoint
-    const dist1 = calculateDistance(startLat, startLng, closestWaypoint.lat, closestWaypoint.lng)
-    const dist2 = calculateDistance(closestWaypoint.lat, closestWaypoint.lng, endLat, endLng)
-    const totalDistance = (dist1 + dist2) * 1000 // in meters
+    // Draw walking route from delivery partner to delivery location
+    const drawRoute = async () => {
+      // Check if map still exists
+      if (!mapRef.current) {
+        console.log('⚠️ Map not initialized, skipping route draw')
+        return
+      }
 
-    // Add 20% for walking paths/turns
-    const adjustedDistance = totalDistance * 1.2
+      const routeCoordinates = await fetchWalkingRoute(
+        deliveryPartnerLocation,
+        deliveryCoords
+      )
 
-    setRouteDistance(adjustedDistance)
+      // Check again after async operation
+      if (!mapRef.current) {
+        console.log('⚠️ Map was destroyed during route fetch')
+        return
+      }
 
-    // Walking speed: ~5 km/h = 83.33 m/min
-    const walkingSpeed = 83.33
-    const duration = adjustedDistance / walkingSpeed
+      // Remove old route and decorator if exists
+      if (routeLayerRef.current && mapRef.current) {
+        try {
+          mapRef.current.removeLayer(routeLayerRef.current)
+        } catch (e) {
+          console.log('Could not remove old route layer')
+        }
+      }
+      if (decoratorLayerRef.current && mapRef.current) {
+        try {
+          mapRef.current.removeLayer(decoratorLayerRef.current)
+        } catch (e) {
+          console.log('Could not remove old decorator layer')
+        }
+      }
 
-    setRouteDuration(duration)
-  }
+      // Draw new route
+      routeLayerRef.current = L.polyline(routeCoordinates, {
+        color: '#3B82F6',
+        weight: 5,
+        opacity: 0.8,
+        dashArray: '10, 10',
+        lineCap: 'round',
+        lineJoin: 'round',
+      }).addTo(mapRef.current)
 
-  if (!mounted) {
+      // Try to add arrow decorators (optional - will fail gracefully if library not loaded)
+      try {
+        if ((L as any).polylineDecorator) {
+          decoratorLayerRef.current = (L as any).polylineDecorator(routeLayerRef.current, {
+            patterns: [
+              {
+                offset: 25,
+                repeat: 100,
+                symbol: (L.Symbol as any).arrowHead({
+                  pixelSize: 12,
+                  polygon: false,
+                  pathOptions: { stroke: true, color: '#3B82F6', weight: 3 }
+                })
+              }
+            ]
+          })
+          decoratorLayerRef.current.addTo(mapRef.current)
+        }
+      } catch (error) {
+        console.log('Arrow decorators not available (optional feature)')
+      }
+
+      // Fit map to show all markers and route
+      if (mapRef.current && deliveryPartnerMarkerRef.current && pickupMarkerRef.current && deliveryMarkerRef.current && routeLayerRef.current) {
+        try {
+          const group = L.featureGroup([
+            deliveryPartnerMarkerRef.current,
+            pickupMarkerRef.current,
+            deliveryMarkerRef.current,
+            routeLayerRef.current,
+          ])
+          mapRef.current.fitBounds(group.getBounds().pad(0.1))
+        } catch (e) {
+          console.log('Could not fit bounds')
+        }
+      }
+    }
+
+    drawRoute()
+
+    return () => {
+      // Don't remove map on cleanup, just clean up layers
+      if (routeLayerRef.current && mapRef.current) {
+        try {
+          mapRef.current.removeLayer(routeLayerRef.current)
+        } catch (e) {
+          // Layer already removed
+        }
+      }
+      if (decoratorLayerRef.current && mapRef.current) {
+        try {
+          mapRef.current.removeLayer(decoratorLayerRef.current)
+        } catch (e) {
+          // Layer already removed
+        }
+      }
+    }
+  }, [deliveryPartnerLocation, pickupLocation, deliveryLocation])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove()
+        mapRef.current = null
+      }
+    }
+  }, [])
+
+  // Show loading state if no delivery partner location
+  if (!deliveryPartnerLocation?.lat || !deliveryPartnerLocation?.lng) {
     return (
-      <div className="w-full h-96 bg-gray-200 rounded-lg flex items-center justify-center">
-        <p className="text-gray-500">Loading map...</p>
+      <div className="relative w-full h-full flex items-center justify-center bg-gray-100 rounded-lg">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-gray-600 font-semibold">Waiting for delivery partner location...</p>
+          <p className="text-sm text-gray-500 mt-2">Map will appear once tracking starts</p>
+        </div>
       </div>
     )
   }
 
-  const centerLat = (pickupLat + dropoffLat) / 2
-  const centerLng = (pickupLng + dropoffLng) / 2
-
-  const distanceMeters = Math.round(routeDistance)
-  const durationMinutes = Math.ceil(routeDuration)
-
   return (
-    <div className="w-full">
-      <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-3 rounded-lg shadow-sm border">
-          <p className="text-xs text-gray-600">Walking Distance</p>
-          <p className="text-lg font-bold">{distanceMeters}m</p>
-        </div>
-        <div className="bg-white p-3 rounded-lg shadow-sm border">
-          <p className="text-xs text-gray-600">Walking Time</p>
-          <p className="text-lg font-bold">{durationMinutes} min</p>
-        </div>
-        <div className="bg-white p-3 rounded-lg shadow-sm border">
-          <p className="text-xs text-gray-600">Status</p>
-          <p className="text-lg font-bold capitalize">{orderStatus.replace('_', ' ')}</p>
-        </div>
-        {deliveryPartnerLat && deliveryPartnerLng && (
-          <div className="bg-blue-50 p-3 rounded-lg shadow-sm border-2 border-blue-300">
-            <p className="text-xs text-gray-600">Live ETA</p>
-            <p className="text-lg font-bold text-blue-600">{durationMinutes} min</p>
+    <div className="relative w-full h-full">
+      <div ref={mapContainerRef} className="w-full h-full rounded-lg" />
+      
+      {/* Route info overlay */}
+      {routeDistance !== null && routeDuration !== null && (
+        <div className="absolute top-4 left-4 bg-white px-4 py-2 rounded-lg shadow-lg z-[1000]">
+          <div className="text-sm font-semibold text-gray-700">Walking Route</div>
+          <div className="text-xs text-gray-600 mt-1">
+            📏 {(routeDistance / 1000).toFixed(2)} km
           </div>
-        )}
-      </div>
-
-      <div className="w-full h-96 rounded-lg overflow-hidden shadow-lg border-2 border-gray-200">
-        <MapContainer
-          center={[centerLat, centerLng]}
-          zoom={15}
-          style={{ height: '100%', width: '100%' }}
-          scrollWheelZoom={true}
-        >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-
-          {/* Pickup location (Café) */}
-          <Marker position={[pickupLat, pickupLng]} icon={cafeIcon}>
-            <Popup>
-              <div className="text-center">
-                <p className="font-bold">☕ John Fulton Centre</p>
-                <p className="text-xs">Rm LG05, Student Café</p>
-                <p className="text-xs text-gray-500">Pickup Location</p>
-              </div>
-            </Popup>
-          </Marker>
-
-          {/* Dropoff location (Customer) */}
-          <Marker position={[dropoffLat, dropoffLng]} icon={customerIcon}>
-            <Popup>
-              <div className="text-center">
-                <p className="font-bold">📍 Delivery Location</p>
-                <p className="text-xs">{distanceMeters}m from café</p>
-                <p className="text-xs">{durationMinutes} min walk</p>
-              </div>
-            </Popup>
-          </Marker>
-
-          {/* Delivery partner location */}
-          {deliveryPartnerLat && deliveryPartnerLng && orderStatus !== 'pending' && (
-            <>
-              <Marker position={[deliveryPartnerLat, deliveryPartnerLng]} icon={deliveryIcon}>
-                <Popup>
-                  <div className="text-center">
-                    <p className="font-bold">🚶 Delivery Partner</p>
-                    <p className="text-xs">Currently on the way!</p>
-                    <p className="text-xs font-semibold text-blue-600">ETA: {durationMinutes} min</p>
-                  </div>
-                </Popup>
-              </Marker>
-              
-              <Circle
-                center={[deliveryPartnerLat, deliveryPartnerLng]}
-                radius={30}
-                pathOptions={{ color: 'blue', fillColor: 'blue', fillOpacity: 0.2 }}
-              />
-            </>
-          )}
-
-          {/* Walking route */}
-          {walkingRoute.length > 0 && (
-            <Polyline
-              positions={walkingRoute}
-              pathOptions={{
-                color: orderStatus === 'delivered' ? '#22c55e' : '#3b82f6',
-                weight: 5,
-                opacity: 0.8,
-                dashArray: orderStatus === 'pending' ? '10, 10' : undefined
-              }}
-            />
-          )}
-
-          {/* Delivery radius */}
-          <Circle
-            center={[dropoffLat, dropoffLng]}
-            radius={50}
-            pathOptions={{ color: 'green', fillColor: 'green', fillOpacity: 0.1 }}
-          />
-        </MapContainer>
-      </div>
-
-      <div className="mt-4 bg-white p-4 rounded-lg shadow-sm border">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-4 text-sm">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-              <span>Café</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-              <span>Delivery Partner</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-              <span>Customer</span>
-            </div>
+          <div className="text-xs text-gray-600">
+            ⏱️ ~{Math.round(routeDuration / 60)} min
           </div>
-          <div className="text-xs text-gray-500">
-            Estimated campus walking route
-          </div>
+        </div>
+      )}
+
+      {/* Legend */}
+      <div className="absolute bottom-4 right-4 bg-white px-3 py-2 rounded-lg shadow-lg z-[1000] text-xs">
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-4 h-4 bg-blue-500 rounded-full"></div>
+          <span>Delivery Partner</span>
+        </div>
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-4 h-4 bg-amber-500 rounded-full"></div>
+          <span>Pickup Location</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 bg-green-500 rounded-full"></div>
+          <span>Delivery Location</span>
         </div>
       </div>
     </div>

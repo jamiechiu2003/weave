@@ -41,7 +41,7 @@ export default function Header() {
             </Link>
             {user && (
               <>
-                <Link href="/profile" className="hover:text-blue-600 transition">
+                <Link href="/orders" className="hover:text-blue-600 transition">
                   My Orders
                 </Link>
                 <Link href="/delivery" className="hover:text-blue-600 transition">
@@ -96,7 +96,7 @@ export default function Header() {
               </Link>
               {user ? (
                 <>
-                  <Link href="/profile" className="hover:text-blue-600 transition">
+                  <Link href="/orders" className="hover:text-blue-600 transition">
                     My Orders
                   </Link>
                   <Link href="/delivery" className="hover:text-blue-600 transition">
